@@ -37,6 +37,21 @@ const movieSchema = new mongoose.Schema(
       max: 10,
     },
 
+    // 🔞 Adult-only flag (manually chosen from admin)
+    isAdult: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    // ⭐ Sorting for adult page (bigger = more popular)
+    // TMDB has "popularity" — we store it here
+    popularity: {
+      type: Number,
+      default: 0,
+      index: true,
+    },
+
     genres: {
       type: [String],
       default: [],
@@ -138,5 +153,7 @@ movieSchema.index({ isTrending: 1, updatedAt: -1 });
 
 // 🔹 Optional: quickly fetch manual anime / cdrama
 movieSchema.index({ source: 1, type: 1, createdAt: -1 });
+
+movieSchema.index({ isAdult: 1, popularity: -1 });
 
 export default mongoose.model("Movie", movieSchema);

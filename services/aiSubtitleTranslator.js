@@ -1,4 +1,3 @@
-import debug from "../utils/debug.js";
 // services/aiSubtitleTranslator.js
 import fs from "fs";
 import path from "path";
@@ -22,22 +21,36 @@ if (!fs.existsSync(SUBTITLES_DIR)) {
 const projectId = process.env.GOOGLE_PROJECT_ID;
 
 if (!projectId) {
-  debug.warn(
+  console.warn(
     "[aiSubtitleTranslator] WARNING: GOOGLE_PROJECT_ID is not set in .env"
   );
 }
 
-debug.log(
+console.log(
   "[aiSubtitleTranslator] PROJECT_ID =",
   projectId,
   "GOOGLE_APPLICATION_CREDENTIALS =",
   process.env.GOOGLE_APPLICATION_CREDENTIALS
 );
 
-// v2 usage: new v2.Translate()
-// we aliased v2 as Translate, so do new Translate.Translate()
+let credentials;
+
+try {
+  credentials = JSON.parse(process.env.GOOGLE_TRANSLATE_CREDENTIALS);
+
+  // ✅ FIX: Railway env often stores newlines as \\n
+  if (credentials?.private_key) {
+    credentials.private_key = credentials.private_key.replace(/\\n/g, "\n");
+  }
+} catch (e) {
+  console.error("[aiSubtitleTranslator] Failed to parse GOOGLE_TRANSLATE_CREDENTIALS");
+  credentials = null;
+}
+
 const translateClient = new Translate.Translate({
   projectId,
+  credentials,
+  quotaProjectId: projectId, // 🔥 THIS IS THE FIX
 });
 
 /**
@@ -288,7 +301,7 @@ export async function createMnSubtitleFile({
 
   const publicUrl = await uploadSubtitleToStorage(fakeFile);
 
-  debug.log("[aiSubtitleTranslator] Uploaded AI subtitle to", publicUrl);
+  console.log("[aiSubtitleTranslator] Uploaded AI subtitle to", publicUrl);
 
   // keep fullPath in return so existing code doesn't break
   const fullPath = publicUrl;
