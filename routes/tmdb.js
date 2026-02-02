@@ -215,18 +215,28 @@ router.post("/import/:tmdbId", async (req, res) => {
       mediaType === "movie" ? (m.release_date || "") : (m.first_air_date || "")
     ).slice(0, 4);
 
-    const doc = await Movie.create({
-      tmdbId: m.id,
-      type: "movie", // ✅ always movie here
-      title: commonTitle,
-      description: m.overview || "",
-      year,
-      thumbnail: poster,
-      banner: backdrop,
-      isTrending: true,
-    });
+    let doc;
+      try {
+        doc = await Movie.create({
+          tmdbId: m.id,
+          type: "movie", // ✅ always movie here
+          title: commonTitle,
+          description: m.overview || "",
+          year,
+          thumbnail: poster,
+          banner: backdrop,
+          isTrending: true,
+        });
+      } catch (err) {
+        // ✅ If another request already created this tmdbId, return existing
+        if (err?.code === 11000) {
+          const existing2 = await Movie.findOne({ tmdbId: m.id });
+          if (existing2) return res.json({ ok: true, movie: existing2, already: true });
+        }
+        throw err;
+      }
 
-    return res.json({ ok: true, movie: doc });
+      return res.json({ ok: true, movie: doc });
   } catch (e) {
     console.error("/api/tmdb/import error:", e);
     return res.status(500).json({ message: e.message });
@@ -384,17 +394,27 @@ router.post("/import-tv/:tmdbId", async (req, res) => {
     const commonTitle =
       m.name || m.title || m.original_name || m.original_title || "";
 
-    const doc = await Movie.create({
-      tmdbId: m.id,
-      type: "series",
-      title: commonTitle,
-      description: m.overview || "",
-      year: (m.first_air_date || "").slice(0, 4),
-      thumbnail: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : "",
-      banner: m.backdrop_path ? `https://image.tmdb.org/t/p/original${m.backdrop_path}` : "",
-    });
+    let doc;
+      try {
+        doc = await Movie.create({
+          tmdbId: m.id,
+          type: "series",
+          title: commonTitle,
+          description: m.overview || "",
+          year: (m.first_air_date || "").slice(0, 4),
+          thumbnail: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : "",
+          banner: m.backdrop_path ? `https://image.tmdb.org/t/p/original${m.backdrop_path}` : "",
+        });
+      } catch (err) {
+        // ✅ If another request already created this tmdbId, return existing
+        if (err?.code === 11000) {
+          const existing2 = await Movie.findOne({ tmdbId: m.id, type: "series" });
+          if (existing2) return res.json({ ok: true, series: existing2, already: true });
+        }
+        throw err;
+      }
 
-    return res.json({ ok: true, series: doc });
+      return res.json({ ok: true, series: doc });
   } catch (e) {
     console.error("/api/tmdb/import-tv error:", e);
     return res.status(500).json({ message: e.message });
