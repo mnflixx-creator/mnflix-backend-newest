@@ -886,6 +886,7 @@ router.post("/:id/stream/stop",
       user.devices.forEach((d) => {
         if (d.deviceId === deviceId) {
           d.isStreaming = false;
+          d.lastActive = new Date();
         }
       });
 
@@ -935,6 +936,7 @@ router.get("/:id/stream/status",
           isStreaming: false,
           userAgent: req.headers["user-agent"] || "",
           createdAt: new Date(),
+          lastActive: new Date(),   // ✅ add
         });
         await user.save();
         thisDevice = user.devices[0];
@@ -950,6 +952,14 @@ router.get("/:id/stream/status",
         });
       }
 
+      // ✅ Heartbeat: this device is alive (prevents TTL from expiring it)
+      thisDevice.lastActive = new Date();
+      thisDevice.lastIP = (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.ip;
+
+      // ✅ TTL: treat old streaming device as NOT really watching
+      const STREAM_TTL_MS = 90 * 1000;
+      const now = Date.now();
+
       // 🔎 find the device that is considered 'active'
       let activeDevice = null;
       if (user.activeStreamDeviceId) {
@@ -960,26 +970,39 @@ router.get("/:id/stream/status",
 
       // ✅ CASE 3: if there is a real active streaming device
       // and it's NOT this one → kick with DEVICE_LIMIT
+      const activeLast = activeDevice?.lastActive ? new Date(activeDevice.lastActive).getTime() : 0;
+      const activeIsFresh = activeLast && (now - activeLast) <= STREAM_TTL_MS;
+
       if (
         activeDevice &&
         activeDevice.deviceId !== deviceId &&
-        activeDevice.isStreaming
+        activeDevice.isStreaming &&
+        activeIsFresh
       ) {
         return res.status(403).json({
           code: "DEVICE_LIMIT",
           message:
-            "MNFLIX нэг аккаунтаар нэг төхөөрөмж зэрэг үзэх боломжтой. Өөр төхөөрөмж үзэж эхэлсэн тул энэ төхөөрөмж дээрх үзэх эрхийг автоматаар идэвхгүй болголоо.",
+            "Өөр төхөөрөмж дээр кино тоглож байна. MNFlix нь нэг аккаунтаар зэрэг хоёр төхөөрөмж дээр үзэхийг зөвшөөрдөггүй.",
         });
       }
 
       // ✅ CASE 4: no real active streaming device
       // (maybe activeStreamDeviceId is stale)
       // → clean up and allow
-      if (!activeDevice || !activeDevice.isStreaming) {
+      const activeLast2 = activeDevice?.lastActive ? new Date(activeDevice.lastActive).getTime() : 0;
+      const activeIsFresh2 = activeLast2 && (now - activeLast2) <= STREAM_TTL_MS;
+
+      if (!activeDevice || !activeDevice.isStreaming || !activeIsFresh2) {
         user.activeStreamDeviceId = null;
+
+        // clear all streaming flags if "active" is stale/dead
         user.devices.forEach((d) => {
           d.isStreaming = false;
         });
+
+        await user.save();
+      } else {
+        // still save heartbeat updates
         await user.save();
       }
 
