@@ -1,10 +1,20 @@
 import User from "../models/User.js";
+import Movie from "../models/Movie.js"; // ✅ ADD THIS
 import { isFreePreview } from "../utils/isFreePreview.js";
 
 export default async function checkSubscription(req, res, next) {
   try {
+    // ✅ Try to load movie ONLY if route has :id (like /api/movies/:id/stream)
+    // If not found, it still falls back to old behavior safely.
+    let movie = null;
+    const movieId = req.params?.id || req.body?.movieId || req.query?.movieId;
+
+    if (movieId) {
+      movie = await Movie.findById(movieId).select("type seasons").lean();
+    }
+
     // ✅ Allow free preview without subscription
-    if (isFreePreview(req)) {
+    if (isFreePreview(req, movie)) {
       return next();
     }
 
