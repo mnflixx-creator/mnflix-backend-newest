@@ -1,11 +1,11 @@
 import User from "../models/User.js";
-import Movie from "../models/Movie.js"; // ✅ ADD THIS
+import Movie from "../models/Movie.js";
 import { isFreePreview } from "../utils/isFreePreview.js";
+
+const ALLOW_FREE_PREVIEW = process.env.ALLOW_FREE_PREVIEW === "true";
 
 export default async function checkSubscription(req, res, next) {
   try {
-    // ✅ Try to load movie ONLY if route has :id (like /api/movies/:id/stream)
-    // If not found, it still falls back to old behavior safely.
     let movie = null;
     const movieId = req.params?.id || req.body?.movieId || req.query?.movieId;
 
@@ -13,8 +13,8 @@ export default async function checkSubscription(req, res, next) {
       movie = await Movie.findById(movieId).select("type seasons").lean();
     }
 
-    // ✅ Allow free preview without subscription
-    if (isFreePreview(req, movie)) {
+    // ✅ Allow free preview without subscription (ONLY if toggle is ON)
+    if (ALLOW_FREE_PREVIEW && isFreePreview(req, movie)) {
       return next();
     }
 
@@ -23,7 +23,6 @@ export default async function checkSubscription(req, res, next) {
 
     const now = new Date();
 
-    // auto-expire subscription
     if (user.subscriptionExpiresAt && now > user.subscriptionExpiresAt) {
       user.subscriptionStatus = "expired";
       user.subscriptionActive = false;
