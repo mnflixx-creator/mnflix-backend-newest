@@ -1,3 +1,4 @@
+
 import debug from "../utils/debug.js";
 import express from "express";
 import Movie from "../models/Movie.js";
@@ -494,7 +495,7 @@ router.get("/type/:type", async (req, res) => {
 });
 
 // 🔎 Get movie/series/anime by TMDB ID
-// Use query ?type=anime | series | kdrama | cdrama
+// Use query ?type=movie | anime | series | kdrama | cdrama
 router.get("/by-tmdb/:tmdbId", async (req, res) => {
   try {
     const tmdbId = Number(req.params.tmdbId);
@@ -505,7 +506,8 @@ router.get("/by-tmdb/:tmdbId", async (req, res) => {
     // decide desired type from query
     const raw = (req.query.type || "").toLowerCase();
     let requestedType = "series";
-    if (raw === "anime") requestedType = "anime";
+    if (raw === "movie") requestedType = "movie";
+    else if (raw === "anime") requestedType = "anime";
     else if (raw === "kdrama") requestedType = "kdrama";
     else if (raw === "cdrama") requestedType = "cdrama";
 
@@ -520,38 +522,42 @@ router.get("/by-tmdb/:tmdbId", async (req, res) => {
       return res.json(movie);
     }
 
-    // 2) Try to get full info from TMDB, but don't die if it fails
-    let tvData = null;
+    // 2) Fetch full info from TMDB (movie or tv)
+    let data = null;
     try {
-      tvData = await fetchTmdbTvStructure(tmdbId);
+      const media = requestedType === "movie" ? "movie" : "tv";
+      data = await fetchTmdbAnyStructure(tmdbId, media);
     } catch (err) {
-      console.error(
-        "Auto TMDB create failed for",
-        tmdbId,
-        err.message
-      );
+      console.error("TMDB fetch failed for", tmdbId, err.message);
+      return res.status(502).json({
+        message: "TMDB мэдээлэл татаж чадсангүй. Дахин оролдоно уу.",
+      });
     }
 
-    // ✅ Build a safe document that satisfies Movie schema even if tvData is null
+    // ✅ if TMDB returned nothing -> DO NOT create placeholder
+    if (!data?.title) {
+      return res.status(502).json({
+        message: "TMDB мэдээлэл буцаасангүй. Дахин оролдоно уу.",
+      });
+    }
+
     const doc = {
       tmdbId,
       source: "tmdb",
       type: requestedType,
       isEdited: false,
 
-      // ✅ title is required in your Movie schema → always set something
-      title: tvData?.title || `TMDB ${tmdbId}`,
-      description: tvData?.description || "",
-      year: tvData?.year || "",
-      rating: tvData?.rating || 0,
-      genres: tvData?.genres || [],
-      thumbnail: tvData?.thumbnail,
-      banner: tvData?.banner,
-      seasons: tvData?.seasons || [],
+      title: data.title,
+      description: data.description || "",
+      year: data.year || "",
+      rating: data.rating || 0,
+      genres: data.genres || [],
+      thumbnail: data.thumbnail,
+      banner: data.banner,
+      seasons: data.seasons || [],
     };
 
-    movie = new Movie(doc);
-    await movie.save();
+    movie = await Movie.create(doc);
     return res.json(movie);
   } catch (e) {
     console.error("by-tmdb error:", e);
@@ -1174,6 +1180,39 @@ async function fetchTmdbTvStructure(tmdbId) {
   return result;
 }
 
+async function fetchTmdbAnyStructure(tmdbId, media) {
+  const key = process.env.TMDB_API_KEY;
+  if (!key) throw new Error("TMDB_API_KEY not set");
+
+  const type = media === "movie" ? "movie" : "tv";
+
+  const r = await axios.get(`https://api.themoviedb.org/3/${type}/${tmdbId}`, {
+    params: { api_key: key, language: "en-US" },
+  });
+
+  const d = r.data;
+
+  // 🎬 MOVIE
+  if (media === "movie") {
+    return {
+      title: d.title || d.original_title,
+      description: d.overview || "",
+      year: (d.release_date || "").slice(0, 4),
+      rating: d.vote_average || 0,
+      genres: Array.isArray(d.genres) ? d.genres.map((g) => g.name) : [],
+      thumbnail: d.poster_path
+        ? `https://image.tmdb.org/t/p/w600_and_h900_face${d.poster_path}`
+        : undefined,
+      banner: d.backdrop_path
+        ? `https://image.tmdb.org/t/p/original${d.backdrop_path}`
+        : undefined,
+      seasons: [], // movie has no seasons
+    };
+  }
+
+  // 📺 TV / SERIES / ANIME / KDRAMA / CDRAMA
+  return fetchTmdbTvStructure(tmdbId);
+}
 
 // ===============================
 // ⚠ REPORT PROBLEM WITH MOVIE
