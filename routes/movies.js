@@ -804,6 +804,103 @@ router.get("/recommended", authMiddleware, async (req, res) => {
   }
 });
 
+// 🔍 ADMIN: search local Mongo movies (for admin adult picker)
+router.get("/admin/search-local", adminOnly, async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim();
+    if (!q) return res.json([]);
+
+    const safe = escapeRegex(q);
+
+    const results = await Movie.find(
+      { title: { $regex: safe, $options: "i" } },
+      "title thumbnail banner year type rating tmdbId isAdult popularity createdAt"
+    )
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .lean();
+
+    return res.json(results);
+  } catch (e) {
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+// 🔞 ADMIN: mark/unmark as 18+
+// - if popularity not provided -> auto fetch from TMDB using tmdbId
+router.patch("/admin/adult/:id", adminOnly, async (req, res) => {
+  try {
+    const id = req.params.id;
+
+    const isAdult = req.body.isAdult === true || req.body.isAdult === "true";
+
+    // Find movie first (we need tmdbId + type)
+    const doc = await Movie.findById(id).select("tmdbId type").lean();
+    if (!doc) return res.status(404).json({ message: "Movie not found" });
+
+    // If admin manually sends popularity -> use it
+    const popularityRaw = req.body.popularity;
+    let popularity =
+      popularityRaw === undefined || popularityRaw === null
+        ? undefined
+        : Number(popularityRaw);
+
+    // If NOT provided -> fetch from TMDB
+    if (!Number.isFinite(popularity)) {
+      const key = process.env.TMDB_API_KEY;
+      if (!key) {
+        return res.status(500).json({ message: "TMDB_API_KEY missing" });
+      }
+      if (!doc.tmdbId) {
+        // no tmdbId => can't auto fetch popularity
+        popularity = 0;
+      } else {
+        // movie -> /movie, everything else -> /tv
+        const tmdbType = doc.type === "movie" ? "movie" : "tv";
+
+        const tmdbRes = await axios.get(
+          `https://api.themoviedb.org/3/${tmdbType}/${doc.tmdbId}`,
+          { params: { api_key: key, language: "en-US" } }
+        );
+
+        popularity = Number(tmdbRes.data?.popularity || 0);
+        if (!Number.isFinite(popularity)) popularity = 0;
+      }
+    }
+
+    const updates = { isAdult, popularity };
+
+    const movie = await Movie.findByIdAndUpdate(id, updates, { new: true })
+      .select("title isAdult popularity tmdbId type")
+      .lean();
+
+    return res.json({ ok: true, movie });
+  } catch (e) {
+    console.error("adult toggle error:", e?.message);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+// 🔞 PUBLIC: adult list (sorted by popularity desc)
+router.get("/adult", async (req, res) => {
+  try {
+    const limitRaw = req.query.limit;
+    let limit = parseInt(limitRaw, 10);
+    if (!Number.isFinite(limit) || limit <= 0) limit = 60;
+    limit = Math.min(limit, 200);
+
+    const list = await Movie.find({ isAdult: true })
+      .select("title thumbnail banner year type rating tmdbId popularity createdAt")
+      .sort({ popularity: -1, createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    return res.json(list);
+  } catch (e) {
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
 router.get("/:id", async (req, res) => {
   try {
     const movie = await Movie.findById(req.params.id)
