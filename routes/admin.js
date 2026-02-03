@@ -460,6 +460,24 @@ router.post("/users/:id/toggle-subscription", adminOnly, async (req, res) => {
   }
 });
 
+// 🗑 DELETE USER (admin)
+router.delete("/users/:id", adminOnly, async (req, res) => {
+  try {
+    const userId = req.params.id;
+
+    // Optional: also delete their progress/history to keep DB clean
+    await Progress.deleteMany({ userId });
+
+    const deleted = await User.findByIdAndDelete(userId);
+    if (!deleted) return res.status(404).json({ message: "User not found" });
+
+    return res.json({ ok: true });
+  } catch (err) {
+    debug.log("Delete user error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
 /* ----------------------------------------
    🎬 ADMIN MOVIES LIST (ONLY MANUAL UPLOADS)
 -----------------------------------------*/

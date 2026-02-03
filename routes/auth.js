@@ -28,7 +28,8 @@ router.post("/register", async (req, res) => {
         .json({ message: "Имэйл болон нууц үгээ оруулаарай" });
     }
 
-    const existing = await User.findOne({ email });
+    const emailNorm = String(email).trim().toLowerCase();
+    const existing = await User.findOne({ email: emailNorm });
     if (existing) {
       return res.status(400).json({
         message: "Энэ имэйл хаяг аль хэдийн бүртгэгдсэн байна",
@@ -38,7 +39,7 @@ router.post("/register", async (req, res) => {
     const hashed = await bcrypt.hash(password, 10);
 
     const user = await User.create({
-      email,
+      email: emailNorm,
       password: hashed,
       isPhoneVerified: true,
     });
@@ -75,7 +76,8 @@ router.post("/login", async (req, res) => {
         .json({ message: "Имэйл болон нууц үгээ оруулна уу" });
     }
 
-    const user = await User.findOne({ email });
+    const emailNorm = String(email).trim().toLowerCase();
+    const user = await User.findOne({ email: emailNorm });
     if (!user) {
       return res.status(400).json({ message: "Хэрэглэгч бүртгэлгүй байна" });
     }
@@ -122,7 +124,8 @@ router.post("/password/send-otp", async (req, res) => {
       return res.status(500).json({ message: "Missing RESEND_API_KEY in Railway." });
     }
 
-    const user = await User.findOne({ email });
+    const emailNorm = String(email).trim().toLowerCase();
+    const user = await User.findOne({ email: emailNorm });
     if (!user) {
       return res.status(400).json({ message: "Хэрэглэгч олдсонгүй" });
     }
@@ -179,7 +182,8 @@ router.post("/password/verify-otp", async (req, res) => {
     debug.log("✅ EMAIL FROM FRONTEND:", email);
     debug.log("✅ OTP FROM FRONTEND:", otp);
 
-    const user = await User.findOne({ email });
+    const emailNorm = String(email).trim().toLowerCase();
+    const user = await User.findOne({ email: emailNorm });
 
     if (!user) {
       debug.log("❌ USER NOT FOUND");
