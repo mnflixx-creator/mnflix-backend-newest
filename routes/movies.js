@@ -493,8 +493,8 @@ router.get("/type/:type", async (req, res) => {
   }
 });
 
-// 🔎 Get movie/series/anime by TMDB ID (READ ONLY)
-// This endpoint must NEVER create/import to Mongo
+// 🔎 Get movie/series/anime by TMDB ID
+// Use query ?type=anime | series | kdrama | cdrama
 router.get("/by-tmdb/:tmdbId", async (req, res) => {
   try {
     const tmdbId = Number(req.params.tmdbId);
@@ -508,15 +508,50 @@ router.get("/by-tmdb/:tmdbId", async (req, res) => {
     if (raw === "anime") requestedType = "anime";
     else if (raw === "kdrama") requestedType = "kdrama";
     else if (raw === "cdrama") requestedType = "cdrama";
-    else if (raw === "movie") requestedType = "movie";
 
-    // ✅ ONLY FIND. DO NOT CREATE.
-    const movie = await Movie.findOne({ tmdbId, type: requestedType }).lean();
+    // 1) Try to find existing doc
+    let movie = await Movie.findOne({ tmdbId });
 
-    if (!movie) {
-      return res.status(404).json({ message: "Not found in Mongo" });
+    if (movie) {
+      if (movie.source === "tmdb" && movie.type !== requestedType) {
+        movie.type = requestedType;
+        await movie.save();
+      }
+      return res.json(movie);
     }
 
+    // 2) Try to get full info from TMDB, but don't die if it fails
+    let tvData = null;
+    try {
+      tvData = await fetchTmdbTvStructure(tmdbId);
+    } catch (err) {
+      console.error(
+        "Auto TMDB create failed for",
+        tmdbId,
+        err.message
+      );
+    }
+
+    // ✅ Build a safe document that satisfies Movie schema even if tvData is null
+    const doc = {
+      tmdbId,
+      source: "tmdb",
+      type: requestedType,
+      isEdited: false,
+
+      // ✅ title is required in your Movie schema → always set something
+      title: tvData?.title || `TMDB ${tmdbId}`,
+      description: tvData?.description || "",
+      year: tvData?.year || "",
+      rating: tvData?.rating || 0,
+      genres: tvData?.genres || [],
+      thumbnail: tvData?.thumbnail,
+      banner: tvData?.banner,
+      seasons: tvData?.seasons || [],
+    };
+
+    movie = new Movie(doc);
+    await movie.save();
     return res.json(movie);
   } catch (e) {
     console.error("by-tmdb error:", e);
