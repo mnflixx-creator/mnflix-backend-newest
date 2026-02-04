@@ -6,8 +6,60 @@ import StreamCache from "../models/StreamCache.js"; // ✅ NEW
 
 const router = express.Router();
 
-const ZENTLIFY_BASE = "https://zentlify.qzz.io/api/streams";
 const ZENTLIFY_API_KEY = process.env.ZENTLIFY_API_KEY;
+const ZENTLIFY_BASE = "https://zentlify.qzz.io/api/streams";
+
+// ✅ MAIN + 2 FALLBACK gateways (same API shape)
+const ZENTLIFY_BASES = [
+  "https://zentlify.qzz.io/api/streams",
+  "https://anya-gw-1.mnflix-mirror.workers.dev/api/streams",
+  "https://anya-gw-2.mnflix-mirror2.workers.dev/api/streams",
+];
+
+// ✅ retry only on rate-limit / server errors / timeouts
+function isRetryableAxiosError(err) {
+  const status = err?.response?.status;
+
+  // timeout / network error (no response)
+  if (!err?.response) return true;
+
+  // rate limited or server errors
+  if (status === 429) return true;
+  if (status >= 500) return true;
+
+  return false;
+}
+
+async function axiosGetWithFallback(fullUrl, config) {
+  let lastErr;
+
+  for (const base of ZENTLIFY_BASES) {
+    // swap base while keeping the same path
+    const url = fullUrl.replace("https://zentlify.qzz.io/api/streams", base);
+
+    try {
+      const res = await axios.get(url, config);
+      return { res, usedBase: base };
+    } catch (err) {
+      lastErr = err;
+
+      // ✅ only retry if it’s retryable
+      if (isRetryableAxiosError(err)) {
+        debug.warn(
+          "⚠️ Zentlify gateway failed, trying next:",
+          base,
+          err?.response?.status || err.message
+        );
+        continue;
+      }
+
+      // ❌ non-retryable (401/403/404 etc) → stop immediately
+      throw err;
+    }
+  }
+
+  throw lastErr;
+}
 
 // ✅ how long cache is considered "fresh" (3 hours)
 const CACHE_TTL_MS = 3 * 60 * 60 * 1000;
@@ -90,12 +142,14 @@ router.get("/movie/:tmdbId", async (req, res) => {
     let mainStreams = [];
 
     try {
-      const upstream = await axios.get(upstreamUrl, {
+      const { res: upstream, usedBase } = await axiosGetWithFallback(upstreamUrl, {
         headers: {
           Authorization: `Bearer ${ZENTLIFY_API_KEY}`,
         },
         timeout: 15000,
       });
+
+      debug.log("✅ Zentlify movie gateway used:", usedBase);
 
       data = upstream.data || {};
       mainStreams = Array.isArray(data.streams) ? data.streams : [];
@@ -125,10 +179,12 @@ router.get("/movie/:tmdbId", async (req, res) => {
         debug.log("🎥 Flow movie upstream:", flowUrl);
 
         try {
-          const flowRes = await axios.get(flowUrl, {
+          const { res: flowRes, usedBase } = await axiosGetWithFallback(flowUrl, {
             headers: { Authorization: `Bearer ${ZENTLIFY_API_KEY}` },
             timeout: 15000,
           });
+
+          debug.log("✅ Flow movie gateway used:", usedBase);
 
           const flowData = flowRes.data || {};
           flowStreams = Array.isArray(flowData.streams) ? flowData.streams : [];
@@ -322,12 +378,14 @@ router.get("/series/:tmdbId", async (req, res) => {
     const upstreamUrl = `${ZENTLIFY_BASE}/series/${tmdbId}?${qs.toString()}`;
     debug.log("📺 Zentlify series upstream:", upstreamUrl);
 
-    const upstream = await axios.get(upstreamUrl, {
+    const { res: upstream, usedBase } = await axiosGetWithFallback(upstreamUrl, {
       headers: {
         Authorization: `Bearer ${ZENTLIFY_API_KEY}`,
       },
       timeout: 15000,
     });
+
+    debug.log("✅ Zentlify series gateway used:", usedBase);
 
     const data = upstream.data || {};
     const mainStreams = Array.isArray(data.streams) ? data.streams : [];
@@ -345,12 +403,14 @@ router.get("/series/:tmdbId", async (req, res) => {
     debug.log("🎥 Flow series upstream:", flowUrl);
 
     try {
-        const flowRes = await axios.get(flowUrl, {
-        headers: {
+        const { res: flowRes, usedBase } = await axiosGetWithFallback(flowUrl, {
+          headers: {
             Authorization: `Bearer ${ZENTLIFY_API_KEY}`,
-        },
-        timeout: 15000,
+          },
+          timeout: 15000,
         });
+
+        debug.log("✅ Flow series gateway used:", usedBase);
 
         const flowData = flowRes.data || {};
         const flowStreams = Array.isArray(flowData.streams)
@@ -521,12 +581,14 @@ router.get("/anime/:tmdbId", async (req, res) => {
     )}`;
     debug.log("🟣 Zentlify anime upstream:", upstreamUrl);
 
-    const upstream = await axios.get(upstreamUrl, {
+    const { res: upstream, usedBase } = await axiosGetWithFallback(upstreamUrl, {
       headers: {
         Authorization: `Bearer ${ZENTLIFY_API_KEY}`,
       },
       timeout: 15000,
     });
+
+    debug.log("✅ Zentlify anime gateway used:", usedBase);
 
     const data = upstream.data || {};
     const streams = Array.isArray(data.streams) ? data.streams : [];
