@@ -6,24 +6,23 @@ import { htmlToText } from "html-to-text";
 const USER = process.env.GMAIL_IMAP_USER;
 const PASS = process.env.GMAIL_IMAP_PASS;
 
-// ✅ now default to M bank alert address (matches any smartinfo*@m-bank.mn)
+// ✅ M bank sender domain (you can override by env)
 const FROM = process.env.GOLOMT_ALERT_FROM || "m-bank.mn";
 
 function normalize(s = "") {
   return s.replace(/\s+/g, " ").trim();
 }
 
-// NOTE: name kept the same so the rest of your code still works
 function parseGolomtText(text) {
   const t = normalize(text);
 
-  // ✅ Xacbank: "Гүйлгээний дүн: 8,900.00"
+  // ✅ M bank: "Гүйлгээний дүн: 8,900.00"
   const amountMatch = t.match(/Гүйлгээний дүн:\s*([\d.,]+)/);
 
-  // ✅ Xacbank: "Гүйлгээ хийсэн огноо: 2026-01-13"
+  // ✅ M bank: "Гүйлгээ хийсэн огноо: 2026-01-13"
   const dateMatch = t.match(/Гүйлгээ хийсэн огноо:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/i);
 
-  // M bank: allow 1–32 letters/digits and dashes for the description/code
+  // ✅ M bank: code in "Гүйлгээний утга"
   const codeMatch = t.match(/Гүйлгээний утга:\s*([A-Za-z0-9\-]{1,32})/);
 
   return {
@@ -33,10 +32,11 @@ function parseGolomtText(text) {
   };
 }
 
-// ✅ MAIN FUNCTION USED BY YOUR ROUTE
-export async function findGolomtDepositByCode({ code, minAmount, lookback = 100 }) {
+export async function findGolomtDepositByCode({ code, minAmount, lookback = 20 }) {
   if (!USER || !PASS) throw new Error("Missing GMAIL_IMAP_USER or GMAIL_IMAP_PASS");
   if (!code) throw new Error("Missing code");
+
+  const upperCode = code.toUpperCase();
 
   const client = new ImapFlow({
     host: "imap.gmail.com",
@@ -50,12 +50,10 @@ export async function findGolomtDepositByCode({ code, minAmount, lookback = 100 
   const lock = await client.getMailboxLock("INBOX");
 
   try {
-    // 🔎 search both M bank and old Xacbank alert emails
-    const uidsMbank = await client.search({ from: "m-bank.mn" });
-    const uidsXac = await client.search({ from: "XacInfo@xacbank.mn" });
-
-    // merge and sort, remove duplicates
-    const uids = Array.from(new Set([...uidsMbank, ...uidsXac])).sort((a, b) => a - b);
+    // ✅ FAST: Gmail searches for the code inside M-bank emails
+    const uids = await client.search({
+      gmailRaw: `from:(${FROM}) ${upperCode} newer_than:7d`,
+    });
 
     if (!uids.length) return { found: false };
 
@@ -74,22 +72,12 @@ export async function findGolomtDepositByCode({ code, minAmount, lookback = 100 
 
       const extracted = parseGolomtText(plain);
 
-      const upperPlain = plain.toUpperCase();
-      const upperCode = code.toUpperCase();
-
-      // ✅ consider it a match if:
-      //   - parser caught the code, OR
-      //   - the raw email text contains the code anywhere
       const hasCode =
         (extracted.code && extracted.code === upperCode) ||
-        upperPlain.includes(upperCode);
+        plain.toUpperCase().includes(upperCode);
 
-      if (!hasCode) {
-        // this email is not for this user's code
-        continue;
-      }
+      if (!hasCode) continue;
 
-      // we found the code -> now check amount
       const amt = extracted.amount !== null ? extracted.amount : null;
 
       if (amt !== null && amt >= Number(minAmount)) {
