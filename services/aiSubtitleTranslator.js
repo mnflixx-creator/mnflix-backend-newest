@@ -2,7 +2,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { v2 as Translate } from "@google-cloud/translate";
+// Uses Google Translate v2 API key (no service account)
 import { uploadSubtitleToStorage } from "../utils/storage.js";
 
 // Resolve __dirname in ES modules
@@ -17,41 +17,13 @@ if (!fs.existsSync(SUBTITLES_DIR)) {
   fs.mkdirSync(SUBTITLES_DIR, { recursive: true });
 }
 
-/* 🔹 ADD THIS PART 🔹 */
-const projectId = process.env.GOOGLE_PROJECT_ID;
+const TRANSLATE_API_KEY = process.env.GOOGLE_TRANSLATE_API_KEY;
 
-if (!projectId) {
+if (!TRANSLATE_API_KEY) {
   console.warn(
-    "[aiSubtitleTranslator] WARNING: GOOGLE_PROJECT_ID is not set in .env"
+    "[aiSubtitleTranslator] WARNING: GOOGLE_TRANSLATE_API_KEY is not set"
   );
 }
-
-console.log(
-  "[aiSubtitleTranslator] PROJECT_ID =",
-  projectId,
-  "GOOGLE_APPLICATION_CREDENTIALS =",
-  process.env.GOOGLE_APPLICATION_CREDENTIALS
-);
-
-let credentials;
-
-try {
-  credentials = JSON.parse(process.env.GOOGLE_TRANSLATE_CREDENTIALS);
-
-  // ✅ FIX: Railway env often stores newlines as \\n
-  if (credentials?.private_key) {
-    credentials.private_key = credentials.private_key.replace(/\\n/g, "\n");
-  }
-} catch (e) {
-  console.error("[aiSubtitleTranslator] Failed to parse GOOGLE_TRANSLATE_CREDENTIALS");
-  credentials = null;
-}
-
-const translateClient = new Translate.Translate({
-  projectId,
-  credentials,
-  quotaProjectId: projectId, // 🔥 THIS IS THE FIX
-});
 
 /**
  * Normalize line endings, trim, etc.
@@ -167,17 +139,12 @@ function cleanCaptionTextLines(lines) {
   return cleaned;
 }
 
-/**
- * Translate an array of caption texts to Mongolian, batch by batch.
- */
 async function translateCaptionsToMn(texts) {
   const BATCH_SIZE = 40;
   const target = "mn";
 
-  if (!translateClient) {
-    throw new Error(
-      "Translate client not initialized (check GOOGLE_PROJECT_ID / GOOGLE_APPLICATION_CREDENTIALS)"
-    );
+  if (!TRANSLATE_API_KEY) {
+    throw new Error("Missing GOOGLE_TRANSLATE_API_KEY");
   }
 
   const results = [];
@@ -185,30 +152,49 @@ async function translateCaptionsToMn(texts) {
   for (let i = 0; i < texts.length; i += BATCH_SIZE) {
     const batch = texts.slice(i, i + BATCH_SIZE);
 
-    // skip completely empty batch
+    // keep length same
     if (!batch.some((t) => t && t.trim().length)) {
       results.push(...Array(batch.length).fill(""));
       continue;
     }
 
     try {
-      const [translated] = await translateClient.translate(batch, target);
-
-      if (Array.isArray(translated)) {
-        results.push(...translated);
-      } else {
-        results.push(translated);
-      }
-    } catch (err) {
-      console.error("[aiSubtitleTranslator] Google translate error:", err);
-      throw new Error(
-        "Google Translate failed: " + (err.message || String(err))
+      const res = await fetch(
+        `https://translation.googleapis.com/language/translate/v2?key=${TRANSLATE_API_KEY}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            q: batch,        // array of strings
+            target,
+            format: "text",
+          }),
+        }
       );
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`HTTP ${res.status}: ${errText}`);
+      }
+
+      const data = await res.json();
+
+      const translatedArr = data?.data?.translations?.map((t) => t.translatedText) || [];
+
+      // ensure same length
+      while (translatedArr.length < batch.length) translatedArr.push("");
+      if (translatedArr.length > batch.length) translatedArr.length = batch.length;
+
+      results.push(...translatedArr);
+    } catch (err) {
+      console.error("[aiSubtitleTranslator] Google translate v2 error:", err);
+      throw new Error("Google Translate failed: " + (err.message || String(err)));
     }
   }
 
   return results;
 }
+
 /**
  * Build a WEBVTT file from cues and translated Mongolian texts.
  */
