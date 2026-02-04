@@ -56,6 +56,10 @@ export async function findGolomtDepositByCode({ code, minAmount, lookback = 20 }
 
   const upperCode = code.toUpperCase();
 
+  // ✅ normalize minAmount safely ("9,900₮" -> 9900)
+  const min = Number(String(minAmount).replace(/[^\d.]/g, ""));
+  if (!Number.isFinite(min)) throw new Error("Invalid minAmount");
+
   const client = new ImapFlow({
     host: "imap.gmail.com",
     port: 993,
@@ -68,10 +72,17 @@ export async function findGolomtDepositByCode({ code, minAmount, lookback = 20 }
   const lock = await client.getMailboxLock("INBOX");
 
   try {
-    // ✅ FAST: Gmail searches for the code inside M-bank emails
-    const uids = await client.search({
-      gmailRaw: `from:(${FROM}) ${upperCode} newer_than:7d`,
+    // ✅ Try fast domain-filtered search first
+    let uids = await client.search({
+      gmailRaw: `from:(${FROM}) ${upperCode} newer_than:14d`,
     });
+
+    // ✅ Fallback: code-only search (in case sender changes)
+    if (!uids.length) {
+      uids = await client.search({
+        gmailRaw: `${upperCode} newer_than:14d`,
+      });
+    }
 
     if (!uids.length) return { found: false };
 
@@ -96,9 +107,9 @@ export async function findGolomtDepositByCode({ code, minAmount, lookback = 20 }
 
       if (!hasCode) continue;
 
-      const amt = extracted.amount !== null ? extracted.amount : null;
+      const amt = extracted.amount ?? null;
 
-      if (amt !== null && amt >= Number(minAmount)) {
+      if (amt !== null && amt >= min) {
         return {
           found: true,
           amount: amt,
@@ -123,3 +134,4 @@ export async function findGolomtDepositByCode({ code, minAmount, lookback = 20 }
     await client.logout();
   }
 }
+
