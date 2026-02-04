@@ -16,18 +16,36 @@ function normalize(s = "") {
 function parseGolomtText(text) {
   const t = normalize(text);
 
-  // ✅ M bank: "Гүйлгээний дүн: 8,900.00"
-  const amountMatch = t.match(/Гүйлгээний дүн:\s*([\d.,]+)/);
+  // ✅ Amount: supports
+  // "Гүйлгээний дүн: 9,900.00MNT"
+  // "Гүйлгээний дүн: 9,900.00"
+  // "Гүйлгээний дүн: 9900₮"
+  // "Гүйлгээний дүн: 9 900"
+  const amountMatch =
+    t.match(/Гүйлгээний\s*дүн\s*:\s*([0-9.,\s]+)\s*(MNT|₮)?/i) ||
+    t.match(/Гүйлгээний\s*дүн\s*:\s*([0-9.,\s]+)/i);
 
-  // ✅ M bank: "Гүйлгээ хийсэн огноо: 2026-01-13"
-  const dateMatch = t.match(/Гүйлгээ хийсэн огноо:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/i);
+  // ✅ Date: your current email DOES NOT have this line, so keep optional
+  const dateMatch =
+    t.match(/Гүйлгээ\s*хийсэн\s*огноо\s*:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/i) ||
+    t.match(/([0-9]{4}\/[0-9]{2}\/[0-9]{2})/); // fallback if date appears as 2026/02/04
 
-  // ✅ M bank: code in "Гүйлгээний утга"
-  const codeMatch = t.match(/Гүйлгээний утга:\s*([A-Za-z0-9\-]{1,32})/);
+  // ✅ Code: supports "Гүйлгээний утга: FBA765A0"
+  const codeMatch =
+    t.match(/Гүйлгээний\s*утга\s*:\s*([A-Za-z0-9\-]{1,32})/i);
+
+  let amount = null;
+  if (amountMatch?.[1]) {
+    amount = Number(
+      amountMatch[1]
+        .replace(/\s/g, "")   // remove spaces
+        .replace(/,/g, "")    // remove thousand separators
+    );
+  }
 
   return {
-    amount: amountMatch ? Number(amountMatch[1].replace(/[,\s]/g, "")) : null,
-    date: dateMatch ? dateMatch[1] : null,
+    amount: Number.isFinite(amount) ? amount : null,
+    date: dateMatch ? (dateMatch[1] || null) : null,
     code: codeMatch ? codeMatch[1].toUpperCase() : null,
   };
 }
