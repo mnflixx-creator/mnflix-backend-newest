@@ -30,10 +30,21 @@ function isRetryableAxiosError(err) {
   return false;
 }
 
+function shuffledBases(bases) {
+  const arr = [...bases];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
 async function axiosGetWithFallback(fullUrl, config) {
   let lastErr;
 
-  for (const base of ZENTLIFY_BASES) {
+  // Randomize base order per request to distribute load, while keeping
+  // retry-on-error behavior across remaining bases.
+  for (const base of shuffledBases(ZENTLIFY_BASES)) {
     // swap base while keeping the same path
     const url = fullUrl.replace("https://zentlify.qzz.io/api/streams", base);
 
