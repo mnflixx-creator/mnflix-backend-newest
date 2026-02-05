@@ -18,6 +18,13 @@ router.patch(
   ]),
   async (req, res) => {
     try {
+      // ✅ 1) Get existing doc type from DB (the source of truth)
+      const existing = await Movie.findById(req.params.id).select("type").lean();
+      if (!existing) return res.status(404).json({ message: "Movie not found" });
+
+      const existingType = existing.type; // "movie" | "series" | ...
+
+      // ✅ 2) Build update WITHOUT type
       const update = {
         title: req.body.title,
         description: req.body.description,
@@ -25,23 +32,23 @@ router.patch(
         rating: Number(req.body.rating) || 0,
         genres: JSON.parse(req.body.genres || "[]"),
 
-        // ✅ MOVIE PLAYERS (only if type = movie)
-        player1: req.body.type === "movie" ? req.body.player1 : null,
-        player2: req.body.type === "movie" ? req.body.player2 : null,
-        player3: req.body.type === "movie" ? req.body.player3 : null,
-
-        // ✅ TYPE
-        type: req.body.type,
-
         kidsOnly: req.body.kidsOnly === "true",
         isTrending: req.body.isTrending === "true",
       };
 
-      // ✅ SAVE SEASONS ONLY IF SENT (THIS FIXES YOUR BUG)
-      if (req.body.seasons) {
+      // ✅ 3) Only update movie players if the DB type is movie
+      if (existingType === "movie") {
+        update.player1 = req.body.player1 || "";
+        update.player2 = req.body.player2 || "";
+        update.player3 = req.body.player3 || "";
+      }
+
+      // ✅ 4) Only update seasons if DB type is NOT movie
+      if (existingType !== "movie" && req.body.seasons) {
         update.seasons = JSON.parse(req.body.seasons);
       }
 
+      // ✅ images
       if (req.files?.thumbnail?.[0]) {
         update.thumbnail = `/uploads/${req.files.thumbnail[0].filename}`;
       } else if (req.body.thumbnailUrl) {
@@ -58,7 +65,7 @@ router.patch(
         new: true,
       });
 
-      res.json(movie);
+      return res.json(movie);
     } catch (err) {
       debug.log(err);
       res.status(500).json({ message: "Update failed" });

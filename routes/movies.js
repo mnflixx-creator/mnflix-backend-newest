@@ -346,7 +346,6 @@ router.patch(
           // ignore if invalid
         }
       }
-      updates.type = req.body.type;
 
       if (req.body.seasons) {
         updates.seasons = JSON.parse(req.body.seasons);
