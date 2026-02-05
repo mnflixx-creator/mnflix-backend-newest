@@ -103,6 +103,7 @@ const movieSchema = new mongoose.Schema(
       type: String,
       enum: ["movie", "series", "anime", "kdrama", "cdrama"],
       required: true,
+      immutable: true, // ✅ prevents changing movie<->series later
     },
 
     // ✅ ✅ ✅ SERIES SYSTEM (ADDED SAFELY)
