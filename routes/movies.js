@@ -494,59 +494,45 @@ router.get("/type/:type", async (req, res) => {
   }
 });
 
-// 🔎 Get movie/series/anime by TMDB ID
-// Use query ?type=movie | anime | series | kdrama | cdrama
 router.get("/by-tmdb/:tmdbId", async (req, res) => {
   try {
     const tmdbId = Number(req.params.tmdbId);
-    if (!tmdbId) {
-      return res.status(400).json({ message: "Invalid tmdbId" });
-    }
+    if (!tmdbId) return res.status(400).json({ message: "Invalid tmdbId" });
 
-    // decide desired type from query
-    const raw = (req.query.type || "").toLowerCase();
-    let requestedType = "series";
-    if (raw === "movie") requestedType = "movie";
-    else if (raw === "anime") requestedType = "anime";
-    else if (raw === "kdrama") requestedType = "kdrama";
-    else if (raw === "cdrama") requestedType = "cdrama";
+    // ✅ default = movie (NOT series)
+    const raw = String(req.query.type || "movie").toLowerCase();
+    const allowed = ["movie", "series", "anime", "kdrama", "cdrama"];
+    const requestedType = allowed.includes(raw) ? raw : "movie";
 
-    // 1) Try to find existing doc
-    let movie = await Movie.findOne({ tmdbId });
+    // ✅ IMPORTANT: find by tmdbId + type
+    let doc = await Movie.findOne({ tmdbId, type: requestedType });
+    if (doc) return res.json(doc);
 
-    if (movie) {
-      if (movie.source === "tmdb" && movie.type !== requestedType) {
-        movie.type = requestedType;
-        await movie.save();
-      }
-      return res.json(movie);
-    }
-
-    // 2) Fetch full info from TMDB (movie or tv)
-    let data = null;
-    try {
-      const media = requestedType === "movie" ? "movie" : "tv";
-      data = await fetchTmdbAnyStructure(tmdbId, media);
-    } catch (err) {
-      console.error("TMDB fetch failed for", tmdbId, err.message);
-      return res.status(502).json({
-        message: "TMDB мэдээлэл татаж чадсангүй. Дахин оролдоно уу.",
+    // If doc exists but different type, DO NOT MODIFY DB
+    const any = await Movie.findOne({ tmdbId }).select("type title").lean();
+    if (any && any.type !== requestedType) {
+      return res.status(409).json({
+        message: "TMDB id exists but different type in DB",
+        dbType: any.type,
+        requestedType,
+        tmdbId,
+        title: any.title,
       });
     }
 
-    // ✅ if TMDB returned nothing -> DO NOT create placeholder
+    // ✅ Fetch from TMDB safely
+    const media = requestedType === "movie" ? "movie" : "tv";
+    const data = await fetchTmdbAnyStructure(tmdbId, media);
+
     if (!data?.title) {
-      return res.status(502).json({
-        message: "TMDB мэдээлэл буцаасангүй. Дахин оролдоно уу.",
-      });
+      return res.status(502).json({ message: "TMDB мэдээлэл буцаасангүй" });
     }
 
-    const doc = {
+    const created = await Movie.create({
       tmdbId,
       source: "tmdb",
       type: requestedType,
       isEdited: false,
-
       title: data.title,
       description: data.description || "",
       year: data.year || "",
@@ -555,10 +541,9 @@ router.get("/by-tmdb/:tmdbId", async (req, res) => {
       thumbnail: data.thumbnail,
       banner: data.banner,
       seasons: data.seasons || [],
-    };
+    });
 
-    movie = await Movie.create(doc);
-    return res.json(movie);
+    return res.json(created);
   } catch (e) {
     console.error("by-tmdb error:", e);
     return res.status(500).json({ message: e.message || "Server error" });
