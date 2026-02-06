@@ -185,7 +185,11 @@ router.get("/movie/:tmdbId", async (req, res) => {
       for (const t of tryTitles) {
         if (!t) continue;
 
-        const flowQuery = new URLSearchParams({ title: t }).toString();
+        const flowParams = { title: t };
+        const year = req.query.year;
+        if (year) flowParams.year = year;
+        
+        const flowQuery = new URLSearchParams(flowParams).toString();
         const flowUrl = `${ZENTLIFY_BASE}/flow/movie/${tmdbId}?${flowQuery}`;
         debug.log("🎥 Flow movie upstream:", flowUrl);
 
