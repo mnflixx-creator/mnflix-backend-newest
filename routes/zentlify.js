@@ -176,7 +176,7 @@ router.get("/movie/:tmdbId", async (req, res) => {
 
     // ⭐ Also try Flow for MOVIE if we have a title (multi-quality MP4)
     if (title) {
-      const cleanTitle = String(title || "").trim();
+      const cleanTitle = decodeURIComponent(String(title || "")).replace(/\+/g, " ").trim();
       const normalized = cleanTitle.replace(/\s+/g, " ");
       const tryTitles = [cleanTitle, normalized, normalized.toLowerCase()];
 
@@ -404,11 +404,13 @@ router.get("/series/:tmdbId", async (req, res) => {
 
     // ⭐ Also try Flow for series if we have a title
     if (title) {
-    const flowQuery = new URLSearchParams({
-        title,
+      const cleanTitle = decodeURIComponent(String(title || "")).replace(/\+/g, " ").trim();
+
+      const flowQuery = new URLSearchParams({
+        title: cleanTitle,
         season: String(s),
         episode: String(e),
-    }).toString();
+      }).toString();
 
     const flowUrl = `${ZENTLIFY_BASE}/flow/series/${tmdbId}?${flowQuery}`;
     debug.log("🎥 Flow series upstream:", flowUrl);
