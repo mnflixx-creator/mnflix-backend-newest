@@ -168,7 +168,15 @@ router.post("/import/:tmdbId", async (req, res) => {
 
     // ✅ Check existing (either movie or series)
     const existing = await Movie.findOne({ tmdbId });
-    if (existing) return res.json({ ok: true, item: existing, already: true });
+    if (existing) {
+      return res.json({
+        ok: true,
+        item: existing,
+        movie: existing,                 // ✅ compatibility
+        series: existing.type === "series" ? existing : null, // ✅ optional
+        already: true,
+      });
+    }
 
     // helper
     const posterUrl = (p) => (p ? `https://image.tmdb.org/t/p/w500${p}` : "");
@@ -193,7 +201,7 @@ router.post("/import/:tmdbId", async (req, res) => {
         isTrending: true,
       });
 
-      return res.json({ ok: true, item: doc, mediaType: "movie" });
+      return res.json({ ok: true, item: doc, movie: doc, mediaType: "movie" });
     }
 
     // ✅ 2) If not movie, try as TV
@@ -214,7 +222,7 @@ router.post("/import/:tmdbId", async (req, res) => {
       banner: backdropUrl(tv.backdrop_path),
     });
 
-    return res.json({ ok: true, item: doc, mediaType: "tv" });
+    return res.json({ ok: true, item: doc, series: doc, movie: doc, mediaType: "tv" });
     } catch (e) {
     console.error("/api/tmdb/import error:", e);
 
@@ -222,7 +230,7 @@ router.post("/import/:tmdbId", async (req, res) => {
     if (e?.code === 11000) {
       const tmdbId = Number(req.params.tmdbId);
       const existing2 = await Movie.findOne({ tmdbId });
-      if (existing2) return res.json({ ok: true, item: existing2, already: true });
+      if (existing2) return res.json({ ok: true, item: existing2, movie: existing2, already: true });
     }
 
     // ✅ FALLBACK: if TMDB import fails, try by-tmdb auto-create logic
@@ -231,7 +239,7 @@ router.post("/import/:tmdbId", async (req, res) => {
 
       // if it already exists for any reason, return it
       const any = await Movie.findOne({ tmdbId });
-      if (any) return res.json({ ok: true, item: any, fallback: "db" });
+      if (any) return res.json({ ok: true, item: any, movie: any, fallback: "db" });
 
       // last resort: create minimal doc so click doesn't fail
       // (prevents frontend popup; you can improve later)
@@ -248,7 +256,7 @@ router.post("/import/:tmdbId", async (req, res) => {
         isEdited: false,
       });
 
-      return res.json({ ok: true, item: created, fallback: "minimal" });
+      return res.json({ ok: true, item: created, movie: created, fallback: "minimal" });
     } catch (fallbackErr) {
       console.error("import fallback failed:", fallbackErr);
     }
