@@ -371,21 +371,30 @@ router.get("/series/:tmdbId", async (req, res) => {
 
     let existingCache = await StreamCache.findOne(cacheKey).lean();
 
-    // ❗ Only use cache when NO title is passed
-    if (!title && existingCache && isFresh(existingCache.cachedAt)) {
-    debug.log(
-        "📺 Zentlify series: returning FRESH cached streams:",
-        existingCache.streams.length
-    );
-    return res.json({
-        tmdbId: existingCache.tmdbId || tmdbId,
-        season: String(s),
-        episode: String(e),
-        count: (existingCache.streams || []).length,
-        streams: existingCache.streams || [],
-        cached: true,
-        fresh: true,
-    });
+    // ✅ Use fresh cache only if it already includes Flow; otherwise refetch and enrich
+    if (existingCache && isFresh(existingCache.cachedAt)) {
+      const cacheHasFlow = (existingCache.streams || []).some((st) => {
+        const p = (st?.provider || st?.name || "").toLowerCase();
+        return p.includes("flow");
+      });
+
+      if (cacheHasFlow) {
+        debug.log(
+          "📺 Zentlify series: returning FRESH cached streams:",
+          existingCache.streams.length
+        );
+        return res.json({
+          tmdbId: existingCache.tmdbId || tmdbId,
+          season: String(s),
+          episode: String(e),
+          count: (existingCache.streams || []).length,
+          streams: existingCache.streams || [],
+          cached: true,
+          fresh: true,
+        });
+      }
+
+      debug.log("📺 Zentlify series: fresh cache missing Flow, refetching");
     }
 
     // ✅ 2) CALL ZENTLIFY (MAIN providers - NO title)
@@ -406,43 +415,43 @@ router.get("/series/:tmdbId", async (req, res) => {
     const mainStreams = Array.isArray(data.streams) ? data.streams : [];
     let combinedStreams = [...mainStreams];
 
-    // ⭐ Also try Flow for series if we have a title
-    if (title) {
-    const flowQuery = new URLSearchParams({
-        title,
-        season: String(s),
-        episode: String(e),
-    }).toString();
+    // ⭐ Always try Flow for series by TMDB ID (title is optional hint)
+    const cleanTitle = String(title || "").trim();
+    const flowParams = {
+      season: String(s),
+      episode: String(e),
+    };
+    if (cleanTitle) flowParams.title = cleanTitle;
 
+    const flowQuery = new URLSearchParams(flowParams).toString();
     const flowUrl = `${ZENTLIFY_BASE}/flow/series/${tmdbId}?${flowQuery}`;
     debug.log("🎥 Flow series upstream:", flowUrl);
 
     try {
-        const { res: flowRes, usedBase } = await axiosGetWithFallback(flowUrl, {
-          headers: {
-            Authorization: `Bearer ${ZENTLIFY_API_KEY}`,
-          },
-          timeout: 15000,
-        });
+      const { res: flowRes, usedBase } = await axiosGetWithFallback(flowUrl, {
+        headers: {
+          Authorization: `Bearer ${ZENTLIFY_API_KEY}`,
+        },
+        timeout: 15000,
+      });
 
-        debug.log("✅ Flow series gateway used:", usedBase);
+      debug.log("✅ Flow series gateway used:", usedBase);
 
-        const flowData = flowRes.data || {};
-        const flowStreams = Array.isArray(flowData.streams)
+      const flowData = flowRes.data || {};
+      const flowStreams = Array.isArray(flowData.streams)
         ? flowData.streams
         : [];
 
-        if (flowStreams.length) {
+      if (flowStreams.length) {
         debug.log("🎥 Flow series streams:", flowStreams.length);
         combinedStreams = combinedStreams.concat(flowStreams);
-        }
+      }
     } catch (flowErr) {
-        debug.warn(
+      debug.warn(
         "⚠️ Flow series error:",
         flowErr?.response?.status,
         flowErr.message
-        );
-    }
+      );
     }
 
     const sorted = sortStreams(combinedStreams);
