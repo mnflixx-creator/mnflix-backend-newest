@@ -166,79 +166,63 @@ router.post("/import/:tmdbId", async (req, res) => {
     const apiKey = process.env.TMDB_API_KEY;
     if (!apiKey) return res.status(500).json({ message: "TMDB_API_KEY not set" });
 
-    // ✅ 1) If already exists, RETURN IT IMMEDIATELY (no TMDB call)
+    // ✅ Check existing (either movie or series)
     const existing = await Movie.findOne({ tmdbId });
-    if (existing) {
-      // if old bad data says "series" but it has no seasons, treat it as movie
-      if (existing.type === "series" && (!existing.seasons || existing.seasons.length === 0)) {
-        existing.type = "movie";
-        existing.seasons = []; // keep empty
-        await existing.save();
-      }
-      return res.json({ ok: true, movie: existing, already: true });
-    }
+    if (existing) return res.json({ ok: true, item: existing, already: true });
 
-    // ✅ 2) Fetch from TMDB (movie first, then tv)
-    let m = null;
-    let mediaType = "movie";
+    // helper
+    const posterUrl = (p) => (p ? `https://image.tmdb.org/t/p/w500${p}` : "");
+    const backdropUrl = (p) => (p ? `https://image.tmdb.org/t/p/original${p}` : "");
 
-    let r = await fetch(
-      `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${apiKey}&language=en-US`
-    );
+    // ✅ 1) Try as movie
+    let r = await fetch(`https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${apiKey}&language=en-US`);
 
-    // ✅ If rate limited, tell frontend to retry (don’t pretend “import failed”)
-    if (r.status === 429) {
-      return res.status(503).json({ message: "TMDB rate limited. Try again." });
-    }
+    if (r.status === 429) return res.status(503).json({ message: "TMDB rate limited. Try again." });
 
-    if (!r.ok) {
-      return res.status(409).json({
-        message: "This TMDB id is a TV series. Use /import-tv instead.",
-        mediaType: "tv",
-        tmdbId,
+    if (r.ok) {
+      const m = await r.json();
+
+      const doc = await Movie.create({
+        tmdbId: m.id,
+        type: "movie",
+        title: m.title || m.original_title || "",
+        description: m.overview || "",
+        year: (m.release_date || "").slice(0, 4),
+        thumbnail: posterUrl(m.poster_path),
+        banner: backdropUrl(m.backdrop_path),
+        isTrending: true,
       });
+
+      return res.json({ ok: true, item: doc, mediaType: "movie" });
     }
 
-    m = await r.json(); // ✅ ADD THIS LINE
+    // ✅ 2) If not movie, try as TV
+    r = await fetch(`https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${apiKey}&language=en-US`);
 
-    const commonTitle =
-      m.title || m.name || m.original_title || m.original_name || "";
+    if (r.status === 429) return res.status(503).json({ message: "TMDB rate limited. Try again." });
+    if (!r.ok) return res.status(400).json({ message: `TMDB fetch failed (${r.status})` });
 
-    const poster = m.poster_path
-      ? `https://image.tmdb.org/t/p/w500${m.poster_path}`
-      : "";
-    const backdrop = m.backdrop_path
-      ? `https://image.tmdb.org/t/p/original${m.backdrop_path}`
-      : "";
+    const tv = await r.json();
 
-    const year = (
-      mediaType === "movie" ? (m.release_date || "") : (m.first_air_date || "")
-    ).slice(0, 4);
+    const doc = await Movie.create({
+      tmdbId: tv.id,
+      type: "series",
+      title: tv.name || tv.original_name || "",
+      description: tv.overview || "",
+      year: (tv.first_air_date || "").slice(0, 4),
+      thumbnail: posterUrl(tv.poster_path),
+      banner: backdropUrl(tv.backdrop_path),
+    });
 
-    let doc;
-      try {
-        doc = await Movie.create({
-          tmdbId: m.id,
-          type: "movie", // ✅ always movie here
-          title: commonTitle,
-          description: m.overview || "",
-          year,
-          thumbnail: poster,
-          banner: backdrop,
-          isTrending: true,
-        });
-      } catch (err) {
-        // ✅ If another request already created this tmdbId, return existing
-        if (err?.code === 11000) {
-          const existing2 = await Movie.findOne({ tmdbId: m.id });
-          if (existing2) return res.json({ ok: true, movie: existing2, already: true });
-        }
-        throw err;
-      }
-
-      return res.json({ ok: true, movie: doc });
+    return res.json({ ok: true, item: doc, mediaType: "tv" });
   } catch (e) {
     console.error("/api/tmdb/import error:", e);
+    // duplicate key safety
+    if (e?.code === 11000) {
+      const tmdbId = Number(req.params.tmdbId);
+      const existing2 = await Movie.findOne({ tmdbId });
+      if (existing2) return res.json({ ok: true, item: existing2, already: true });
+    }
     return res.status(500).json({ message: e.message });
   }
 });
