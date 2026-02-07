@@ -32,25 +32,43 @@ router.post(
   subtitleUpload.single("subtitle"),
   async (req, res) => {
     try {
-      const { lang, label, isDefault } = req.body;
+      const { lang, label, isDefault, scope, provider } = req.body;
 
-      if (!req.file) {
-        return res.status(400).json({ message: "No subtitle file uploaded" });
-      }
+      if (!req.file) return res.status(400).json({ message: "No subtitle file uploaded" });
 
       const movie = await Movie.findById(req.params.id);
-      if (!movie) {
-        return res.status(404).json({ message: "Movie not found" });
-      }
+      if (!movie) return res.status(404).json({ message: "Movie not found" });
 
       const url = await uploadSubtitleToStorage(req.file);
 
       if (!movie.subtitles) movie.subtitles = [];
 
+      const scoped = (scope || "global").toLowerCase();
+      const prov = scoped === "provider" ? String(provider || "").toLowerCase() : "";
+
+      // ✅ strong validation so you don’t save broken data
+      if (!lang || !label) {
+        return res.status(400).json({ message: "lang and label are required" });
+      }
+      if (scoped === "provider" && !prov) {
+        return res.status(400).json({ message: "Provider is required for provider-only subtitle" });
+      }
+
       const makeDefault = isDefault === "true" || isDefault === true;
+
+      // ✅ default handling:
+      // - if global default → unset defaults for global subs
+      // - if provider default → unset defaults only for that provider subs
       if (makeDefault) {
         movie.subtitles.forEach((s) => {
-          s.isDefault = false;
+          const sScope = (s.scope || "global").toLowerCase();
+          const sProv = String(s.provider || "").toLowerCase();
+
+          if (scoped === "global") {
+            if (sScope === "global") s.isDefault = false;
+          } else {
+            if (sScope === "provider" && sProv === prov) s.isDefault = false;
+          }
         });
       }
 
@@ -59,17 +77,19 @@ router.post(
         label,
         url,
         isDefault: makeDefault,
+        scope: scoped,
+        provider: prov,
       });
 
       await movie.save();
 
-      return res.json({
-        message: "Subtitle uploaded",
-        subtitles: movie.subtitles,
-      });
+      return res.json({ message: "Subtitle uploaded", subtitles: movie.subtitles });
     } catch (err) {
       console.error("Subtitle upload error:", err);
-      return res.status(500).json({ message: "Failed to upload subtitle" });
+      return res.status(500).json({
+        message: "Failed to upload subtitle",
+        error: err?.message || String(err),
+      });
     }
   }
 );
@@ -81,7 +101,8 @@ router.post(
   subtitleUpload.single("subtitle"),
   async (req, res) => {
     try {
-      const { seasonNumber, episodeNumber, lang, label, isDefault } = req.body;
+      const { seasonNumber, episodeNumber, lang, label, isDefault, scope, provider } =
+        req.body;
 
       if (!req.file) {
         return res.status(400).json({ message: "No subtitle file uploaded" });
@@ -117,9 +138,32 @@ router.post(
       const url = await uploadSubtitleToStorage(req.file);
       const makeDefault = isDefault === "true" || isDefault === true;
 
+      const cleanScope =
+        (scope || "global").toLowerCase() === "provider" ? "provider" : "global";
+      const cleanProvider =
+        cleanScope === "provider" ? String(provider || "").toLowerCase() : "";
+
+      // ✅ validation
+      if (!lang || !label) {
+        return res.status(400).json({ message: "lang and label are required" });
+      }
+      if (cleanScope === "provider" && !cleanProvider) {
+        return res
+          .status(400)
+          .json({ message: "Provider is required for provider-only subtitle" });
+      }
+
+      // ✅ default handling (scope-aware)
       if (makeDefault) {
         episode.subtitles.forEach((s) => {
-          s.isDefault = false;
+          const sScope = (s.scope || "global").toLowerCase();
+          const sProv = String(s.provider || "").toLowerCase();
+
+          if (cleanScope === "global") {
+            if (sScope === "global") s.isDefault = false;
+          } else {
+            if (sScope === "provider" && sProv === cleanProvider) s.isDefault = false;
+          }
         });
       }
 
@@ -128,6 +172,8 @@ router.post(
         label,
         url,
         isDefault: makeDefault,
+        scope: cleanScope,
+        provider: cleanProvider,
       });
 
       await movie.save();
