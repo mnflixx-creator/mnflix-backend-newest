@@ -215,14 +215,44 @@ router.post("/import/:tmdbId", async (req, res) => {
     });
 
     return res.json({ ok: true, item: doc, mediaType: "tv" });
-  } catch (e) {
+    } catch (e) {
     console.error("/api/tmdb/import error:", e);
-    // duplicate key safety
+
+    // ✅ duplicate key safety
     if (e?.code === 11000) {
       const tmdbId = Number(req.params.tmdbId);
       const existing2 = await Movie.findOne({ tmdbId });
       if (existing2) return res.json({ ok: true, item: existing2, already: true });
     }
+
+    // ✅ FALLBACK: if TMDB import fails, try by-tmdb auto-create logic
+    try {
+      const tmdbId = Number(req.params.tmdbId);
+
+      // if it already exists for any reason, return it
+      const any = await Movie.findOne({ tmdbId });
+      if (any) return res.json({ ok: true, item: any, fallback: "db" });
+
+      // last resort: create minimal doc so click doesn't fail
+      // (prevents frontend popup; you can improve later)
+      const created = await Movie.create({
+        tmdbId,
+        source: "tmdb",
+        type: "movie", // default; later can be corrected by by-tmdb route when opened
+        title: `TMDB ${tmdbId}`,
+        description: "",
+        year: "",
+        thumbnail: "",
+        banner: "",
+        seasons: [],
+        isEdited: false,
+      });
+
+      return res.json({ ok: true, item: created, fallback: "minimal" });
+    } catch (fallbackErr) {
+      console.error("import fallback failed:", fallbackErr);
+    }
+
     return res.status(500).json({ message: e.message });
   }
 });
