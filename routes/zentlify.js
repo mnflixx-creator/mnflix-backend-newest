@@ -75,6 +75,9 @@ async function axiosGetWithFallback(fullUrl, config) {
 // ✅ how long cache is considered "fresh" (3 hours)
 const CACHE_TTL_MS = 3 * 60 * 60 * 1000;
 
+// ✅ NEW: bump this when resolver logic changes
+const RESOLVER_VERSION = 2;
+
 // helper: sort providers (lush first, then others)
 function sortStreams(streams = []) {
   const order = ["lush", "flow", "sonata", "breeze", "nova", "zen", "neko"];
@@ -125,6 +128,7 @@ router.get("/movie/:tmdbId", async (req, res) => {
       type: "movie",
       season: null,
       episode: null,
+      resolverVersion: RESOLVER_VERSION, // ✅ NEW
     };
 
     let existingCache = await StreamCache.findOne(cacheKey).lean();
@@ -316,6 +320,7 @@ router.get("/movie/:tmdbId", async (req, res) => {
       type: "movie",
       season: null,
       episode: null,
+      resolverVersion: RESOLVER_VERSION, // ✅ ADD THIS
     };
 
     const fallback = await StreamCache.findOne(cacheKey).lean();
@@ -367,6 +372,7 @@ router.get("/series/:tmdbId", async (req, res) => {
       type: "series",
       season: s,
       episode: e,
+      resolverVersion: RESOLVER_VERSION, // ✅ NEW
     };
 
     let existingCache = await StreamCache.findOne(cacheKey).lean();
@@ -524,8 +530,9 @@ router.get("/series/:tmdbId", async (req, res) => {
       type: "series",
       season: s,
       episode: e,
+      resolverVersion: RESOLVER_VERSION, // ✅ ADD THIS
     };
-
+    
     const fallback = await StreamCache.findOne(cacheKey).lean();
     if (fallback && (fallback.streams || []).length > 0) {
       debug.log("📺 Zentlify series: ERROR but using cached fallback");
@@ -578,6 +585,7 @@ router.get("/anime/:tmdbId", async (req, res) => {
       type: "anime",
       season: s,
       episode: e,
+      resolverVersion: RESOLVER_VERSION, // ✅ NEW
     };
 
     let existingCache = await StreamCache.findOne(cacheKey).lean();
@@ -692,6 +700,7 @@ router.get("/anime/:tmdbId", async (req, res) => {
       type: "anime",
       season: s,
       episode: e,
+      resolverVersion: RESOLVER_VERSION, // ✅ NEW
     };
 
     const fallback = await StreamCache.findOne(cacheKey).lean();
