@@ -12,9 +12,6 @@ const streamCacheSchema = new mongoose.Schema({
   season: { type: Number, default: null, index: true },
   episode: { type: Number, default: null, index: true },
 
-  // ✅ NEW: cache versioning (bump when resolver logic changes)
-  resolverVersion: { type: Number, default: 1, index: true },
-
   // what we got from Zentlify: array of streams
   streams: {
     type: Array,
@@ -28,13 +25,7 @@ const streamCacheSchema = new mongoose.Schema({
   },
 });
 
-// ✅ UPDATED: quick lookup includes resolverVersion
-streamCacheSchema.index({
-  tmdbId: 1,
-  type: 1,
-  season: 1,
-  episode: 1,
-  resolverVersion: 1,
-});
+// quick lookup by (tmdbId + type + season + episode)
+streamCacheSchema.index({ tmdbId: 1, type: 1, season: 1, episode: 1 });
 
 export default mongoose.model("StreamCache", streamCacheSchema);
