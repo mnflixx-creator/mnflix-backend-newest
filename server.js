@@ -38,6 +38,7 @@ import authMiddleware from "./middleware/auth.js";
 import subscriptionCheck from "./middleware/subscription.js";
 import deviceLimit from "./middleware/deviceLimit.js";
 import playTokenRoute from "./routes/playToken.js";
+import cookieParser from "cookie-parser";
 
 const app = express();
 
@@ -77,6 +78,7 @@ const corsOptions = {
 
 // ✅ CORS + body parsers (with bigger limit for subtitles)
 app.use(cors(corsOptions));
+app.use(cookieParser());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use("/api/play-token", authMiddleware, subscriptionCheck, deviceLimit, playTokenRoute);

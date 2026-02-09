@@ -15,6 +15,17 @@ function generateOtp() {
   return Math.floor(1000 + Math.random() * 9000).toString();
 }
 
+function setAuthCookie(res, token) {
+  res.cookie("token", token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "None",
+    domain: ".mnflix.com",
+    path: "/",
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+  });
+}
+
 // -----------------------------
 // REGISTER
 // -----------------------------
@@ -47,6 +58,8 @@ router.post("/register", async (req, res) => {
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
       expiresIn: "7d",
     });
+
+    setAuthCookie(res, token);
 
     return res.json({
       message: "Бүртгэл амжилттай",
@@ -90,6 +103,8 @@ router.post("/login", async (req, res) => {
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
       expiresIn: "7d",
     });
+
+    setAuthCookie(res, token);
 
     return res.json({
       message: "Login success",
