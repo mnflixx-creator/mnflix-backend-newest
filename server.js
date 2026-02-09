@@ -37,6 +37,7 @@ import morgan from "morgan";
 import authMiddleware from "./middleware/auth.js";
 import subscriptionCheck from "./middleware/subscription.js";
 import deviceLimit from "./middleware/deviceLimit.js";
+import playTokenRoute from "./routes/playToken.js";
 
 const app = express();
 
@@ -48,10 +49,11 @@ app.use(morgan("combined"));
 
 const allowedOrigins = [
   "http://localhost:3000",
+  "http://localhost:5173",  // ✅ ADD THIS LINE
   "http://127.0.0.1:5500",
   "https://mnflix.com",
   "https://www.mnflix.com",
-  process.env.FRONTEND_URL, // e.g. https://mnflix-frontend.vercel.app
+  process.env.FRONTEND_URL,
 ].filter(Boolean);
 
 // ✅ Allow domains + vercel preview domains
@@ -77,6 +79,7 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use("/api", authMiddleware, subscriptionCheck, deviceLimit, playTokenRoute);
 
 // keep apiLimiter definition, but you can even drop skip() now
 const apiLimiter = rateLimit({
