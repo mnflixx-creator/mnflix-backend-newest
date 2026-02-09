@@ -11,7 +11,7 @@ function base64url(buf) {
     .replace(/=+$/g, "");
 }
 
-router.get("/play-token", (req, res) => {
+router.get("/", (req, res) => {
   const secret = process.env.PLAYBACK_SECRET;
   if (!secret) return res.status(500).json({ error: "PLAYBACK_SECRET not set" });
 
