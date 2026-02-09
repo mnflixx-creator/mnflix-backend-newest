@@ -1,11 +1,16 @@
 import jwt from "jsonwebtoken";
 
 export default function auth(req, res, next) {
-  const header = req.headers.authorization;
+  const header = req.headers.authorization || "";
 
-  if (!header) return res.status(401).json({ message: "No authorization" });
+  // 1) Bearer token (old way)
+  const bearerToken = header.startsWith("Bearer ") ? header.split(" ")[1] : null;
 
-  const token = header.split(" ")[1];
+  // 2) Cookie token (new way for api.mnflix.com)
+  const cookieToken = req.cookies?.token;
+
+  const token = bearerToken || cookieToken;
+  if (!token) return res.status(401).json({ message: "No authorization" });
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
