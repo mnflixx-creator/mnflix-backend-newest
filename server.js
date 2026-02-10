@@ -210,7 +210,7 @@ app.use("/uploads", express.static(uploadsPath));
 const HLS_ORIGIN = process.env.HLS_ORIGIN; // e.g. https://pub-xxxx.r2.dev
 
 app.get(
-  "/hls/*",
+  /^\/hls\/(.+)/,
   authMiddleware,
   subscriptionCheck,
   deviceLimit,
@@ -218,7 +218,7 @@ app.get(
     try {
       if (!HLS_ORIGIN) return res.status(500).send("HLS_ORIGIN is not set");
 
-      const tail = req.originalUrl.replace(/^\/hls\//, ""); // ✅ reliable
+      const tail = req.params[0]; // everything after /hls/
       const upstreamUrl = `${HLS_ORIGIN}/${tail}`;
 
       const upstream = await axios.get(upstreamUrl, {
