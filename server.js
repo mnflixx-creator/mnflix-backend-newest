@@ -206,6 +206,49 @@ fs.mkdirSync(uploadsPath, { recursive: true });
 
 app.use("/uploads", express.static(uploadsPath));
 
+// ✅ Serve /hls/* by proxying from R2/Worker (protected)
+const HLS_ORIGIN = process.env.HLS_ORIGIN; // e.g. https://pub-xxxx.r2.dev
+
+app.get(
+  "/hls/*",
+  authMiddleware,
+  subscriptionCheck,
+  deviceLimit,
+  async (req, res) => {
+    try {
+      if (!HLS_ORIGIN) return res.status(500).send("HLS_ORIGIN is not set");
+
+      const tail = req.originalUrl.replace(/^\/hls\//, ""); // ✅ reliable
+      const upstreamUrl = `${HLS_ORIGIN}/${tail}`;
+
+      const upstream = await axios.get(upstreamUrl, {
+        responseType: "stream",
+        headers: {
+          ...(req.headers.range ? { Range: req.headers.range } : {}),
+          "User-Agent":
+            req.headers["user-agent"] ||
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        },
+        validateStatus: () => true,
+      });
+
+      res.status(upstream.status);
+
+      ["content-type", "content-length", "accept-ranges", "content-range", "cache-control"].forEach(
+        (h) => {
+          const v = upstream.headers[h];
+          if (v) res.setHeader(h, v);
+        }
+      );
+
+      upstream.data.pipe(res);
+    } catch (err) {
+      console.error("HLS proxy error:", err?.message);
+      res.status(502).send("Failed to fetch HLS");
+    }
+  }
+);
+
 const httpServer = createServer(app);
 
 const io = new Server(httpServer, {
