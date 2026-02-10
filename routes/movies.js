@@ -279,6 +279,8 @@ router.post(
         player2: req.body.player2,
         player3: req.body.player3,
 
+        hlsPath: (req.body.hlsPath || "").trim(), // ✅ ADD THIS
+
         type: req.body.type,
         seasons,
 
@@ -324,6 +326,7 @@ router.patch(
         player1: req.body.player1,
         player2: req.body.player2,
         player3: req.body.player3,
+        hlsPath: (req.body.hlsPath || "").trim(), // ✅ ADD THIS
         kidsOnly: req.body.kidsOnly === "true",
         isTrending: req.body.isTrending === "true",
       };
@@ -890,7 +893,7 @@ router.get("/:id", async (req, res) => {
   try {
     const movie = await Movie.findById(req.params.id)
       .select(
-        "title description year rating genres kidsOnly isTrending thumbnail banner type tmdbId seasons subtitles player1 player2 player3 createdAt source"
+        "title description year rating genres kidsOnly isTrending thumbnail banner type tmdbId seasons subtitles player1 player2 player3 hlsPath createdAt source"
       )
       .lean();
 
