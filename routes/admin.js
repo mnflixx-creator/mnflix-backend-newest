@@ -41,6 +41,7 @@ router.patch(
         update.player1 = req.body.player1 || "";
         update.player2 = req.body.player2 || "";
         update.player3 = req.body.player3 || "";
+        update.hlsPath = req.body.hlsPath || "";
       }
 
       // ✅ 4) Only update seasons if DB type is NOT movie

@@ -71,14 +71,31 @@ const movieSchema = new mongoose.Schema(
     player1: { type: String },
     player2: { type: String },
     player3: { type: String },
+    // ✅ Uploaded HLS playlist path (Cloudflare R2)
+    // Example: "/hls/<movieId>/master.m3u8"  (or full https url if you want)
+    hlsPath: { type: String, default: "" },
 
     // ⭐ NEW: SUBTITLES FOR MOVIES
     subtitles: [
       {
-        lang: { type: String, required: true },   // "en", "mn", "jp", etc
-        label: { type: String, required: true },  // "English", "Монгол", "Japanese"
-        url: { type: String, required: true },    // full URL or relative path to .vtt/.srt
+        lang: { type: String, required: true },   // "en", "mn"
+        label: { type: String, required: true },  // "English", "Монгол"
+        url: { type: String, required: true },    // .vtt/.srt url
         isDefault: { type: Boolean, default: false },
+
+        // ✅ NEW (backward compatible)
+        scope: {
+          type: String,
+          enum: ["global", "provider"],
+          default: "global",
+        },
+
+        // ✅ NEW (only used if scope === "provider")
+        provider: {
+          type: String,
+          default: "",
+          lowercase: true, // so "Zen" becomes "zen"
+        },
       },
     ],
 
@@ -117,14 +134,19 @@ const movieSchema = new mongoose.Schema(
             tmdbEpisodeId: { type: Number },                 // TMDB episode id
             name: { type: String },                          // Episode title
             airDate: { type: String },                       // "2024-02-01"
+            player: { type: String, default: "" },
+            hlsPath: { type: String, default: "" },
 
-            // ⭐ NEW: SUBTITLES PER EPISODE
             subtitles: [
               {
                 lang: { type: String, required: true },
                 label: { type: String, required: true },
                 url: { type: String, required: true },
                 isDefault: { type: Boolean, default: false },
+
+                // ✅ add these too
+                scope: { type: String, enum: ["global", "provider"], default: "global" },
+                provider: { type: String, default: "", lowercase: true },
               },
             ],
 
