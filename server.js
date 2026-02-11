@@ -213,13 +213,12 @@ app.get(
   /^\/hls\/(.+)/,
   authMiddleware,
   subscriptionCheck,
-  deviceLimit,
   async (req, res) => {
     try {
       if (!HLS_ORIGIN) return res.status(500).send("HLS_ORIGIN is not set");
 
-      const tail = req.params[0]; // everything after /hls/
-      const upstreamUrl = `${HLS_ORIGIN}/${tail}`;
+      const tail = req.params[0]; // movieId/master.m3u8
+      const upstreamUrl = `${HLS_ORIGIN}/hls/${tail}`; // ✅ IMPORTANT
 
       const upstream = await axios.get(upstreamUrl, {
         responseType: "stream",
@@ -234,12 +233,10 @@ app.get(
 
       res.status(upstream.status);
 
-      ["content-type", "content-length", "accept-ranges", "content-range", "cache-control"].forEach(
-        (h) => {
-          const v = upstream.headers[h];
-          if (v) res.setHeader(h, v);
-        }
-      );
+      ["content-type","content-length","accept-ranges","content-range","cache-control"].forEach((h) => {
+        const v = upstream.headers[h];
+        if (v) res.setHeader(h, v);
+      });
 
       upstream.data.pipe(res);
     } catch (err) {

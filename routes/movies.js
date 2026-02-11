@@ -905,6 +905,15 @@ router.get("/:id", async (req, res) => {
 
     // ✅ ALWAYS use your own streams (like before)
     const streams = [];
+    // ✅ NEW: if uploaded HLS exists, expose it as a stream
+    if (movie.hlsPath && String(movie.hlsPath).trim() !== "") {
+      const p = movie.hlsPath.startsWith("/") ? movie.hlsPath : `/${movie.hlsPath}`;
+      streams.push({
+        id: 0,
+        label: "HLS (Upload)",
+        url: `${baseUrl}${p}`, // example: https://api.mnflix.com/hls/<id>/master.m3u8
+      });
+    }
     if (movie.player1) {
       streams.push({
         id: 1,
