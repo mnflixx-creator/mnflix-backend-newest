@@ -907,11 +907,16 @@ router.get("/:id", async (req, res) => {
     const streams = [];
     // ✅ NEW: if uploaded HLS exists, expose it as a stream
     if (movie.hlsPath && String(movie.hlsPath).trim() !== "") {
-      const p = movie.hlsPath.startsWith("/") ? movie.hlsPath : `/${movie.hlsPath}`;
+      const raw = String(movie.hlsPath).trim();
+
+      const url = raw.startsWith("http")
+        ? raw
+        : `${baseUrl}${raw.startsWith("/") ? raw : `/${raw}`}`;
+
       streams.push({
         id: 0,
         label: "HLS (Upload)",
-        url: `${baseUrl}${p}`, // example: https://api.mnflix.com/hls/<id>/master.m3u8
+        url,
       });
     }
     if (movie.player1) {
