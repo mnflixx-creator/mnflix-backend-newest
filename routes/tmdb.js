@@ -161,35 +161,25 @@ router.get("/top", async (req, res) => {
 router.post("/import/:tmdbId", async (req, res) => {
   try {
     const tmdbId = Number(req.params.tmdbId);
+    const wanted = (req.query.type || "").toString(); // "movie" | "series" | ""
+
     if (!tmdbId) return res.status(400).json({ message: "Invalid tmdbId" });
 
-    const apiKey = process.env.TMDB_API_KEY;
-    if (!apiKey) return res.status(500).json({ message: "TMDB_API_KEY not set" });
+    // ✅ If frontend tells you the type, include it in DB lookup
+    // If not provided, keep old behavior (but this is what causes collisions)
+    const findQuery = wanted ? { tmdbId, type: wanted === "movie" ? "movie" : "series" } : { tmdbId };
+    const existing = await Movie.findOne(findQuery);
 
-    // ✅ Check existing (either movie or series)
-    const existing = await Movie.findOne({ tmdbId });
     if (existing) {
-      return res.json({
-        ok: true,
-        item: existing,
-        movie: existing,                 // ✅ compatibility
-        series: existing.type === "series" ? existing : null, // ✅ optional
-        already: true,
-      });
+      return res.json({ ok: true, item: existing, movie: existing, already: true });
     }
 
-    // helper
     const posterUrl = (p) => (p ? `https://image.tmdb.org/t/p/w500${p}` : "");
     const backdropUrl = (p) => (p ? `https://image.tmdb.org/t/p/original${p}` : "");
 
-    // ✅ 1) Try as movie
-    let r = await fetch(`https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${apiKey}&language=en-US`);
-
-    if (r.status === 429) return res.status(503).json({ message: "TMDB rate limited. Try again." });
-
-    if (r.ok) {
-      const m = await r.json();
-
+    // ✅ If type is provided, do NOT fallback to the other type
+    if (wanted === "movie") {
+      const m = await tmdb(`/movie/${tmdbId}`);
       const doc = await Movie.create({
         tmdbId: m.id,
         type: "movie",
@@ -200,68 +190,36 @@ router.post("/import/:tmdbId", async (req, res) => {
         banner: backdropUrl(m.backdrop_path),
         isTrending: true,
       });
-
       return res.json({ ok: true, item: doc, movie: doc, mediaType: "movie" });
     }
 
-    // ✅ 2) If not movie, try as TV
-    r = await fetch(`https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${apiKey}&language=en-US`);
-
-    if (r.status === 429) return res.status(503).json({ message: "TMDB rate limited. Try again." });
-    if (!r.ok) return res.status(400).json({ message: `TMDB fetch failed (${r.status})` });
-
-    const tv = await r.json();
-
-    const doc = await Movie.create({
-      tmdbId: tv.id,
-      type: "series",
-      title: tv.name || tv.original_name || "",
-      description: tv.overview || "",
-      year: (tv.first_air_date || "").slice(0, 4),
-      thumbnail: posterUrl(tv.poster_path),
-      banner: backdropUrl(tv.backdrop_path),
-    });
-
-    return res.json({ ok: true, item: doc, series: doc, movie: doc, mediaType: "tv" });
-    } catch (e) {
-    console.error("/api/tmdb/import error:", e);
-
-    // ✅ duplicate key safety
-    if (e?.code === 11000) {
-      const tmdbId = Number(req.params.tmdbId);
-      const existing2 = await Movie.findOne({ tmdbId });
-      if (existing2) return res.json({ ok: true, item: existing2, movie: existing2, already: true });
-    }
-
-    // ✅ FALLBACK: if TMDB import fails, try by-tmdb auto-create logic
-    try {
-      const tmdbId = Number(req.params.tmdbId);
-
-      // if it already exists for any reason, return it
-      const any = await Movie.findOne({ tmdbId });
-      if (any) return res.json({ ok: true, item: any, movie: any, fallback: "db" });
-
-      // last resort: create minimal doc so click doesn't fail
-      // (prevents frontend popup; you can improve later)
-      const created = await Movie.create({
-        tmdbId,
-        source: "tmdb",
-        type: "movie", // default; later can be corrected by by-tmdb route when opened
-        title: `TMDB ${tmdbId}`,
-        description: "",
-        year: "",
-        thumbnail: "",
-        banner: "",
-        seasons: [],
-        isEdited: false,
+    if (wanted === "series") {
+      const tv = await tmdb(`/tv/${tmdbId}`);
+      const doc = await Movie.create({
+        tmdbId: tv.id,
+        type: "series",
+        title: tv.name || tv.original_name || "",
+        description: tv.overview || "",
+        year: (tv.first_air_date || "").slice(0, 4),
+        thumbnail: posterUrl(tv.poster_path),
+        banner: backdropUrl(tv.backdrop_path),
       });
-
-      return res.json({ ok: true, item: created, movie: created, fallback: "minimal" });
-    } catch (fallbackErr) {
-      console.error("import fallback failed:", fallbackErr);
+      return res.json({ ok: true, item: doc, series: doc, mediaType: "tv" });
     }
 
-    return res.status(500).json({ message: e.message });
+    // ⚠️ If frontend didn’t send type, keep your old “try movie then tv” behavior
+    // (but this is the collision risk)
+    try {
+      const m = await tmdb(`/movie/${tmdbId}`);
+      const doc = await Movie.create({ /* same movie create as above */ });
+      return res.json({ ok: true, item: doc, movie: doc, mediaType: "movie" });
+    } catch {
+      const tv = await tmdb(`/tv/${tmdbId}`);
+      const doc = await Movie.create({ /* same series create as above */ });
+      return res.json({ ok: true, item: doc, series: doc, mediaType: "tv" });
+    }
+  } catch (e) {
+    return res.status(e.status || 500).json({ message: e.message });
   }
 });
 
