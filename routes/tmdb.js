@@ -167,7 +167,10 @@ router.post("/import/:tmdbId", async (req, res) => {
     if (!apiKey) return res.status(500).json({ message: "TMDB_API_KEY not set" });
 
     // ✅ Check existing (either movie or series)
-    const existing = await Movie.findOne({ tmdbId });
+    const wanted = (req.query.type || "").toString(); // "movie" | "series" | ""
+    const existing = wanted
+      ? await Movie.findOne({ tmdbId, type: wanted === "movie" ? "movie" : "series" })
+      : await Movie.findOne({ tmdbId }); // fallback for old calls
     if (existing) {
       return res.json({
         ok: true,
@@ -229,7 +232,11 @@ router.post("/import/:tmdbId", async (req, res) => {
     // ✅ duplicate key safety
     if (e?.code === 11000) {
       const tmdbId = Number(req.params.tmdbId);
-      const existing2 = await Movie.findOne({ tmdbId });
+      const wanted2 = (req.query.type || "").toString();
+      const existing2 = wanted2
+        ? await Movie.findOne({ tmdbId, type: wanted2 === "movie" ? "movie" : "series" })
+        : await Movie.findOne({ tmdbId });
+
       if (existing2) return res.json({ ok: true, item: existing2, movie: existing2, already: true });
     }
 

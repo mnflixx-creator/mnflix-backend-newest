@@ -505,11 +505,11 @@ router.get("/by-tmdb/:tmdbId", async (req, res) => {
     const allowed = ["movie", "series", "anime", "kdrama", "cdrama"];
     const requestedType = allowed.includes(raw) ? raw : "movie";
 
-    // ✅ 1) If anything exists with this tmdbId, RETURN IT (ignore type mismatch)
-    const any = await Movie.findOne({ tmdbId });
-    if (any) return res.json(any);
+    // ✅ 1) Return existing *matching type only*
+    const exact = await Movie.findOne({ tmdbId, type: requestedType });
+    if (exact) return res.json(exact);
 
-    // ✅ 2) Not in DB → fetch from TMDB and create
+    // ✅ 2) If DB has the other type, DO NOT return it — create/fetch the correct one
     const media = requestedType === "movie" ? "movie" : "tv";
     const data = await fetchTmdbAnyStructure(tmdbId, media);
 
@@ -536,10 +536,13 @@ router.get("/by-tmdb/:tmdbId", async (req, res) => {
   } catch (e) {
     console.error("by-tmdb error:", e);
 
-    // ✅ handle duplicate key race safely
+    // ✅ handle duplicate key race safely (type-aware!)
     if (e?.code === 11000) {
       const tmdbId = Number(req.params.tmdbId);
-      const existing = await Movie.findOne({ tmdbId });
+      const raw = String(req.query.type || "movie").toLowerCase();
+      const requestedType = ["movie", "series", "anime", "kdrama", "cdrama"].includes(raw) ? raw : "movie";
+
+      const existing = await Movie.findOne({ tmdbId, type: requestedType });
       if (existing) return res.json(existing);
     }
 
